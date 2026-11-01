@@ -2,7 +2,7 @@
  * cache 名帶 app 前綴：GitHub Pages 所有 project site 同一 origin，
  * 不加前綴會跟其他 App 互相清除快取。
  */
-const CACHE = 'pct-calc-v1';
+const CACHE = 'pct-calc-v2';
 
 const CORE = [
   './',
