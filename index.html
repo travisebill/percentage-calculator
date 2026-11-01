@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+<html lang="zh-TW" class="h-full">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Percentage Calculator App</title>
+    <meta name="theme-color" content="#0b0f19">
+    <meta name="description" content="全螢幕百分比計算器：多欄位加權總和、支援負值輸入，資料存在本機瀏覽器，重新整理不會遺失。">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="百分比計算器">
+    <link rel="manifest" href="manifest.webmanifest">
+    <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+    <link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32.png">
+    <!-- Tailwind CSS -->
+    <script src="vendor/tailwind.js"></script>
+    <!-- FontAwesome for icons -->
+    <link rel="stylesheet" href="vendor/fontawesome.css">
+    <!-- Google Fonts Inter -->
+    <link href="vendor/inter.css" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #0b0f19;
+            color: #f3f4f6;
+        }
+        /* Custom scrollbar */
+        ::-webkit-scrollbar {
+            width: 4px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #111827;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #374151;
+            border-radius: 2px;
+        }
+    </style>
+</head>
+<body class="h-full overflow-hidden flex flex-col justify-between p-2 sm:p-4 bg-[#0b0f19]">
+
+    <!-- App Header Title -->
+    <header class="flex items-center justify-between shrink-0 mb-1 px-2">
+        <h1 class="text-lg sm:text-xl font-bold tracking-tight text-white flex items-center gap-2">
+            <i class="fa-solid fa-calculator text-indigo-400"></i> Percentage Calculator
+        </h1>
+        <span id="persist-status" class="inline-flex items-center gap-1.5 text-[11px] sm:text-xs font-medium text-emerald-400/90 px-2 py-1 rounded-lg bg-emerald-500/10 border border-emerald-500/20 shrink-0">
+            <i class="fa-solid fa-cloud-check text-[10px]"></i> 本機記憶已開啟
+        </span>
+    </header>
+
+    <!-- Main Full-Screen Layout Box -->
+    <main class="flex-1 flex flex-col bg-[#111827]/90 backdrop-blur-xl border border-gray-800/80 rounded-2xl shadow-2xl overflow-hidden p-3 sm:p-5">
+        
+        <!-- Top Total Display (Calculator Summary Header - Numbers only, no explanations) -->
+        <div class="shrink-0 bg-[#1f2937]/90 border border-gray-700/60 rounded-xl p-3 sm:p-4 mb-3 flex items-center justify-between gap-4 shadow-inner">
+            <div class="flex items-center space-x-3">
+                <!-- Special Calculator Symbol Badge -->
+                <div class="w-10 h-10 sm:w-14 sm:h-14 rounded-xl bg-gradient-to-tr from-indigo-600 to-blue-500 flex items-center justify-center shadow-lg shadow-indigo-500/30 text-white text-xl sm:text-2xl font-black ring-2 ring-indigo-500/20 shrink-0">
+                    <i class="fa-solid fa-calculator"></i>
+                </div>
+            </div>
+            <!-- Huge Total Value Only -->
+            <div id="grand-total" class="text-3xl sm:text-5xl lg:text-6xl font-black tracking-tight text-emerald-400 drop-shadow-md text-right w-full truncate">
+                $0.00
+            </div>
+        </div>
+
+        <!-- Entries Container (Compact list fitting 4 rows on 1 screen) -->
+        <div id="entries-list" class="flex-1 overflow-y-auto space-y-2 pr-1">
+            <!-- Dynamically populated rows -->
+        </div>
+
+        <!-- Bottom Action Toolbar -->
+        <div class="shrink-0 pt-3 border-t border-gray-800 flex items-center justify-between gap-3 mt-2">
+            <button onclick="addNewEntry()" class="inline-flex items-center justify-center px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-semibold text-sm sm:text-base shadow-lg shadow-indigo-600/30 transition-all">
+                <i class="fa-solid fa-plus mr-2"></i> 新增欄位
+            </button>
+            <div class="flex items-center space-x-3">
+                <span id="entry-count" class="text-xs sm:text-sm text-gray-400 font-medium">4 欄</span>
+                                <button onclick="resetAll()" class="px-3 py-2 rounded-xl bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-300 border border-indigo-500/20 font-semibold text-sm transition-all">
+                    <i class="fa-solid fa-rotate-left mr-1"></i> 重設
+                </button>
+<button onclick="clearAllEntries()" class="px-3 py-2 rounded-xl bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/20 font-semibold text-sm transition-all">
+                    <i class="fa-solid fa-trash-can mr-1"></i> 清空
+                </button>
+            </div>
+        </div>
+
+    </main>
+
+    <!-- JavaScript Application Logic -->
+    <script>
+        // ===== 本機記憶（localStorage 持久化）=====
+        // key 前綴帶 app 名，避免同 origin 的其他 PWA 互相覆蓋
+        const PERSIST_PREFIX = 'pct_calc_v1:';
+        const KEY_ENTRIES = PERSIST_PREFIX + 'entries';
+        const KEY_NEXT_ID = PERSIST_PREFIX + 'nextId';
+
+        const DEFAULT_ENTRIES = [
+            { id: 1, amount: '', percentage: 100 },
+            { id: 2, amount: '', percentage: 75 },
+            { id: 3, amount: '', percentage: 100 },
+            { id: 4, amount: '', percentage: 75 }
+        ];
+
+        function loadPersisted() {
+            try {
+                const raw = localStorage.getItem(KEY_ENTRIES);
+                if (!raw) return null;
+                const parsed = JSON.parse(raw);
+                if (!Array.isArray(parsed) || parsed.length === 0) return null;
+                const clean = parsed
+                    .filter(e => e && typeof e === 'object')
+                    .map(e => ({
+                        id: Number(e.id) || 0,
+                        amount: (e.amount === null || e.amount === undefined) ? '' : String(e.amount),
+                        percentage: isNaN(parseFloat(e.percentage)) ? 75 : parseFloat(e.percentage)
+                    }))
+                    .filter(e => e.id !== 0);
+                return clean.length ? clean : null;
+            } catch (e) {
+                console.warn('[persist] load failed', e);
+                return null;
+            }
+        }
+
+        function loadNextId(list) {
+            let v = NaN;
+            try {
+                v = parseInt(localStorage.getItem(KEY_NEXT_ID), 10);
+            } catch (e) {}
+            let maxId = 0;
+            (list || []).forEach(e => { if (e.id > maxId) maxId = e.id; });
+            const fromStore = isNaN(v) ? 5 : v;
+            return Math.max(fromStore, maxId + 1, 5);
+        }
+
+        function savePersisted() {
+            try {
+                localStorage.setItem(KEY_ENTRIES, JSON.stringify(entries));
+                localStorage.setItem(KEY_NEXT_ID, String(nextId));
+            } catch (e) {
+                console.warn('[persist] save failed', e);
+            }
+        }
+
+        function clearPersisted() {
+            try {
+                localStorage.removeItem(KEY_ENTRIES);
+                localStorage.removeItem(KEY_NEXT_ID);
+            } catch (e) {}
+        }
+
+        // 有存檔就用存檔，沒有才用預設
+        const restored = loadPersisted();
+        let entries = restored ? restored : DEFAULT_ENTRIES.map(e => Object.assign({}, e));
+        let nextId = loadNextId(restored);
+
+        // Generate options for percentage dropdown (5% to 100% with 5% step)
+        function getPercentageOptions(selectedVal) {
+            let options = '';
+            for (let i = 5; i <= 100; i += 5) {
+                const selected = i === selectedVal ? 'selected' : '';
+                options += `<option value="${i}" ${selected}>${i}%</option>`;
+            }
+            return options;
+        }
+
+        // Render rows (compact, inputs and percentage only)
+        function renderEntries() {
+            const listContainer = document.getElementById('entries-list');
+            listContainer.innerHTML = '';
+
+            if (entries.length === 0) {
+                listContainer.innerHTML = `
+                    <div class="h-full flex flex-col items-center justify-center text-gray-500 py-8">
+                        <i class="fa-solid fa-folder-open text-3xl mb-2 opacity-40"></i>
+                        <p class="text-sm">目前沒有欄位</p>
+                    </div>
+                `;
+                document.getElementById('entry-count').innerText = `0 欄`;
+                calculateTotal();
+                return;
+            }
+
+            entries.forEach((entry, index) => {
+            const rowHtml = `
+                <div class="bg-[#1f2937]/60 hover:bg-[#1f2937] border border-gray-700/40 rounded-xl px-3 py-2 sm:py-2.5 flex items-center justify-between gap-3 transition-all">
+                    <!-- Label -->
+                    <span class="w-16 sm:w-20 text-sm font-bold text-indigo-300">Item ${index + 1}</span>
+                    
+                    <!-- Input & Select Group (Expanded for width, no result column) -->
+                    <div class="flex items-center space-x-2 sm:space-x-3 flex-1 max-w-2xl">
+                        <!-- Input: Amount (Supports negative values, 5+ digit space min-width, disabled browser autofill completely) -->
+                        <div class="relative flex-1">
+                            <span class="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">$</span>
+                            <input type="number" step="any" value="${entry.amount}" 
+                                oninput="updateAmount(${entry.id}, this.value)"
+                                autocomplete="off"
+                                autocorrect="off"
+                                autocapitalize="none"
+                                spellcheck="false"
+                                name="amt_field_${entry.id}_${Math.random()}"
+                                data-lpignore="true"
+                                data-form-type="other"
+                                placeholder="" 
+                                class="w-full min-w-[140px] sm:min-w-[180px] bg-[#111827] border border-gray-700 rounded-lg pl-7 pr-3 py-2 text-white text-base sm:text-lg font-medium focus:outline-none focus:border-indigo-500 transition-colors">
+                        </div>
+
+                        <!-- Dropdown: Percentage (5% to 100%) -->
+                            <div class="w-28 sm:w-36">
+                                <select onchange="updatePercentage(${entry.id}, this.value)"
+                                    class="w-full bg-[#111827] border border-gray-700 rounded-lg px-3 py-2 text-white text-base sm:text-lg font-medium focus:outline-none focus:border-indigo-500 transition-colors">
+                                    ${getPercentageOptions(entry.percentage)}
+                                </select>
+                            </div>
+                        </div>
+
+                        <!-- Delete Button -->
+                        <button onclick="removeEntry(${entry.id})" title="刪除"
+                            class="w-9 h-9 sm:w-10 sm:h-10 rounded-lg bg-red-500/10 hover:bg-red-500/20 text-red-400 flex items-center justify-center border border-red-500/20 transition-all shrink-0">
+                            <i class="fa-solid fa-trash-can text-sm"></i>
+                        </button>
+                    </div>
+                `;
+                listContainer.innerHTML += rowHtml;
+            });
+
+            document.getElementById('entry-count').innerText = `${entries.length} 欄`;
+            calculateTotal();
+        }
+
+        // Update amount value
+        function updateAmount(id, value) {
+            const entry = entries.find(e => e.id === id);
+            if (entry) {
+                entry.amount = value;
+                calculateTotal();
+                savePersisted();
+            }
+        }
+
+        // Update percentage value
+        function updatePercentage(id, value) {
+            const entry = entries.find(e => e.id === id);
+            if (entry) {
+                entry.percentage = parseFloat(value);
+                calculateTotal();
+                savePersisted();
+            }
+        }
+
+        // Add new entry with empty amount and default 75%
+        function addNewEntry() {
+            entries.push({
+                id: nextId++,
+                amount: '',
+                percentage: 75
+            });
+            savePersisted();
+            renderEntries();
+        }
+
+        // Remove specific entry
+        function removeEntry(id) {
+            entries = entries.filter(e => e.id !== id);
+            renderEntries();
+            savePersisted();
+        }
+
+        // Clear all entries
+        function clearAllEntries() {
+            entries = [];
+            renderEntries();
+            savePersisted();
+        }
+
+        // Calculate Grand Total across all rows (Amount * Percentage multiplier)
+        function calculateTotal() {
+            let grandTotal = 0;
+            entries.forEach(entry => {
+                if (entry.amount !== '' && entry.amount !== null && !isNaN(entry.amount)) {
+                    const amt = parseFloat(entry.amount);
+                    const pct = parseFloat(entry.percentage) || 0;
+                    grandTotal += amt * (pct / 100);
+                }
+            });
+
+            const totalEl = document.getElementById('grand-total');
+            totalEl.innerText = `$${grandTotal.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
+            
+            // Color change based on positive/negative grand total
+            if (grandTotal < 0) {
+                totalEl.className = "text-3xl sm:text-5xl lg:text-6xl font-black tracking-tight text-red-400 drop-shadow-md text-right w-full truncate";
+            } else {
+                totalEl.className = "text-3xl sm:text-5xl lg:text-6xl font-black tracking-tight text-emerald-400 drop-shadow-md text-right w-full truncate";
+            }
+        }
+
+        // 重設：清除本機記錄並還原預設 4 欄
+        function resetAll() {
+            if (!confirm('確定要清除所有本機記錄並還原預設的 4 欄嗎？')) return;
+            clearPersisted();
+            entries = DEFAULT_ENTRIES.map(e => Object.assign({}, e));
+            nextId = 5;
+            savePersisted();
+            renderEntries();
+        }
+
+        // Initial render on load
+        window.onload = function() {
+            renderEntries();
+            savePersisted();
+        };
+    </script>
+    <script>
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', function () {
+                navigator.serviceWorker.register('sw.js').catch(function (err) {
+                    console.warn('[sw] register failed', err);
+                });
+            });
+        }
+    </script>
+</body>
+</html>
