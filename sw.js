@@ -2,7 +2,7 @@
  * cache 名帶 app 前綴：GitHub Pages 所有 project site 同一 origin，
  * 不加前綴會跟其他 App 互相清除快取。
  */
-const CACHE = 'pct-calc-v2';
+const CACHE = 'pct-calc-v2.0.1';
 
 const CORE = [
   './',
@@ -24,7 +24,14 @@ self.addEventListener('install', (event) => {
       .then(cache => Promise.all(CORE.map(u => cache.add(u).catch(err => {
         console.warn('[SW] precache miss', u, err);
       }))))
-      .then(() => self.skipWaiting())
+      // 不自動 skipWaiting：讓新 SW 進入 waiting 狀態，
+      // 由頁面偵測後詢問使用者，使用者同意才送 SKIP_WAITING 讓它接管。
+      // 首次安裝（沒有既有 active worker）才直接啟用。
+      .then(() => {
+          if (!self.registration.active) {
+              return self.skipWaiting();
+          }
+      })
   );
 });
 
